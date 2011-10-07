@@ -24,7 +24,7 @@ class MemcacheRLock(object):
     """
     reentrant = True
 
-    def __init__(self, client, key, interval=0.05):
+    def __init__(self, client, key, interval=0.05, uid=None):
         """
         client (memcache.Client)
             Memcache connection.
@@ -35,6 +35,15 @@ class MemcacheRLock(object):
             Must not end with LOCK_UID_KEY_SUFFIX.
         interval (int/float, 0.05)
             Period between consecutive lock taking attemps in blocking mode.
+        uid (any picklable object, None)
+            Unique lock instance identifier for given key.
+            If None, a new uid will be generated for each new instance.
+            Allows overriding default uid allocation. Can also be handy to
+            recover lock when previous instance with given uid died with lock
+            acquired.
+            WARNING: You must be very sure of what you do before fiddling with
+            this parameter. Especially, don't mix up auto-allocated uid and
+            provided uid on the same key. You have been warned.
         """
         if key.endswith(LOCK_UID_KEY_SUFFIX):
             raise ValueError('Key conflicts with internal lock storage key '
@@ -46,13 +55,14 @@ class MemcacheRLock(object):
         self.key = (key_hash, key)
         uid_key = (key_hash, key + LOCK_UID_KEY_SUFFIX)
         client.check_key(uid_key[1])
-        if client.gets(uid_key) is None:
-            # Nobody has used this lock yet (or it was lost in a server
-            # restart). Init to 0. Don't care if it fails, we just need a
-            # value to be set.
-            client.cas(uid_key, 0)
-        self.uid = client.incr(uid_key)
-        assert self.uid is not None
+        if uid is None:
+            if client.gets(uid_key) is None:
+                # Nobody has used this lock yet (or it was lost in a server
+                # restart). Init to 0. Don't care if it fails, we just need a
+                # value to be set.
+                client.cas(uid_key, 0)
+            uid = client.incr(uid_key)
+        self.uid = uid
         self.interval = interval
 
     def acquire(self, blocking=True):
@@ -89,6 +99,15 @@ class MemcacheRLock(object):
 
     def locked(self):
         return self.__get()[0] is not None
+
+    def getOwnerUid(self):
+        """
+        Return lock owner's uid.
+        Purely informative. Chances are this will not be true anymore by the
+        time caller gets this value. Can be handy to recover a lock (see
+        constructor's "uid" parameter - and associated warning).
+        """
+        return self.__get()[0]
 
     __enter__ = acquire
     __exit__ = release
