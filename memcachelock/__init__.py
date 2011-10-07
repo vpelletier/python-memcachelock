@@ -9,7 +9,7 @@ class MemcacheLockError(Exception):
 class MemcacheRLock(object):
     """
     Attempt at using memcached as a lock server, using gets/cas command pair.
-    Based on unimr.memcachedlock .
+    Inspired by unimr.memcachedlock .
     See thread.LockType documentation for API.
 
     How to break things:
