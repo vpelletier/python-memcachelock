@@ -65,6 +65,15 @@ class MemcacheRLock(object):
         self.uid = uid
         self.interval = interval
 
+    def __repr__(self):
+        return '<%s(key=%r, interval=%r, uid=%r) at 0x%x>' % (
+            self.__class__.__name__,
+            self.key[1],
+            self.interval,
+            self.uid,
+            id(self),
+        )
+
     def acquire(self, blocking=True):
         while True:
             owner, count = self.__get()
