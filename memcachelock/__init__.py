@@ -20,6 +20,7 @@ class MemcacheRLock(object):
       don't need to keep them). Next one will think it is the first instance.
     - restart memcache server while one client has taken a lock (unles your
       memcache server restarts from persistent data properly written to disk).
+    - have memcache server prune entries
     """
     reentrant = True
 
