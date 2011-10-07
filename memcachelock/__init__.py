@@ -84,7 +84,7 @@ class MemcacheRLock(object):
         self.__set(count - 1)
 
     def locked(self):
-        return self.__get()[0] == self.uid
+        return self.__get()[0] is not None
 
     __enter__ = acquire
     __exit__ = release
