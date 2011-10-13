@@ -7,7 +7,7 @@ class MemcacheLockError(Exception):
     """
     Lock acquired by another instance.
     If caught outside MemcacheRLock/MemcacheLock instance, means a competitor
-    stole the lock.
+    stole the lock or something is racing against us.
     """
     pass
 
@@ -136,7 +136,12 @@ class MemcacheRLock(object):
     def __get(self):
         value = self.memcache.gets(self.key)
         if value is None:
-            value = (None, 0)
+            # We don't care if this call fails, we just want to initialise
+            # the value.
+            self.memcache.add(self.key, (None, 0))
+            value = self.memcache.gets(self.key)
+            if value is None:
+                raise MemcacheLockError('Memcached caught fire')
         return value
 
     def __set(self, count):
