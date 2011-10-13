@@ -1,8 +1,8 @@
-Python wrapper to use memcache as a lock server.
+Python module using memcache as a lock server.
 
 Disclaimer: This code is inspired by unimr.memcachedlock . I thought I could
-write a stripped-down version without non-builtin dependencies asides of
-memcache module, and only supporting memcache with gets/cas commands.
+write a simpler version of MemcachedRLock class to keep dependencies minimal
+(python builtins plus python-memcache), and enforcing support of gets/cas API.
 
 WARNING: *very* little testing has been done so far. Better review & stress
 this code before using it anywhere for the moment.
