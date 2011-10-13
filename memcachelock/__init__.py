@@ -151,3 +151,62 @@ class MemcacheRLock(object):
 class MemcacheLock(MemcacheRLock):
     reentrant = False
 
+if __name__ == '__main__':
+    # Run simple tests.
+    # Only verifies the API, no race test is done.
+    import memcache
+    HOSTS = ['127.0.0.1:11211']
+    TEST_KEY_1 = 'foo'
+    TEST_KEY_2 = 'bar'
+    mc1 = memcache.Client(HOSTS)
+    mc2 = memcache.Client(HOSTS)
+    mc3 = memcache.Client(HOSTS)
+    mc1.delete_multi((TEST_KEY_1, TEST_KEY_2, TEST_KEY_1 + LOCK_UID_KEY_SUFFIX,
+        TEST_KEY_2 + LOCK_UID_KEY_SUFFIX))
+
+    for klass in (MemcacheLock, MemcacheRLock):
+        # Two locks sharing the same key, a third for crosstalk checking.
+        locka1 = klass(mc1, TEST_KEY_1)
+        locka2 = klass(mc2, TEST_KEY_1)
+        lockb1 = klass(mc3, TEST_KEY_2)
+        print klass, locka1.uid, locka2.uid, lockb1.uid
+
+        def checkLocked(a1=False, a2=False, b1=False):
+            assert locka1.locked() == a1
+            assert locka2.locked() == a2
+            assert lockb1.locked() == b1
+
+        checkLocked()
+        assert locka1.acquire(False)
+        checkLocked(a1=True, a2=True)
+        if klass is MemcacheLock:
+            assert not locka1.acquire(False)
+        assert not locka2.acquire(False)
+        checkLocked(a1=True, a2=True)
+        try:
+            locka2.release()
+        except thread.error:
+            pass
+        else:
+            raise AssertionError('Should have raised')
+        checkLocked(a1=True, a2=True)
+        assert locka2.getOwnerUid() == locka1.uid
+        locka1.release()
+        checkLocked()
+        assert locka1.acquire()
+        del locka1
+        # Lock still held, although owner instance died
+        assert locka2.locked()
+        del locka2
+        del lockb1
+        mc1.delete_multi((TEST_KEY_1, TEST_KEY_2))
+
+    lock = MemcacheRLock(mc1, TEST_KEY_1)
+    assert lock.acquire(False)
+    assert lock.acquire(False)
+    lock.release()
+    assert lock.locked()
+    lock.release()
+    assert not lock.locked()
+    print 'Passed.'
+
