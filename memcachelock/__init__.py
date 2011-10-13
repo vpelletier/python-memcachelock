@@ -22,9 +22,6 @@ class MemcacheRLock(object):
     - have memcache server prune entries
     """
     reentrant = True
-    # Keep a reference to MemcacheLockError so we can rely on its presence
-    # when __del__ gets called during interpreter shutdown.
-    MemcacheLockError = MemcacheLockError
 
     def __init__(self, client, key, interval=0.05, uid=None):
         """
@@ -89,7 +86,7 @@ class MemcacheRLock(object):
                 # Nobody had it on __get call, try to acquire it.
                 try:
                     self.__set(1)
-                except self.MemcacheLockError:
+                except MemcacheLockError:
                     # Someting else was faster.
                     pass
                 else:
@@ -135,15 +132,7 @@ class MemcacheRLock(object):
 
     def __set(self, count):
         if not self.memcache.cas(self.key, (count and self.uid or None, count)):
-            raise self.MemcacheLockError('Lock stolen')
-
-    def __del__(self):
-        owner, _ = self.__get()
-        if owner == self.uid:
-            try:
-                self.__set(0)
-            except self.MemcacheLockError:
-                pass
+            raise MemcacheLockError('Lock stolen')
 
 class MemcacheLock(MemcacheRLock):
     reentrant = False
