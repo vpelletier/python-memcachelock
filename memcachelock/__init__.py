@@ -4,6 +4,11 @@ import time
 LOCK_UID_KEY_SUFFIX = '_uid'
 
 class MemcacheLockError(Exception):
+    """
+    Lock acquired by another instance.
+    If caught outside MemcacheRLock/MemcacheLock instance, means a competitor
+    stole the lock.
+    """
     pass
 
 class MemcacheRLock(object):
