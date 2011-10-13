@@ -10,9 +10,8 @@ class MemcacheRLock(object):
     """
     Attempt at using memcached as a lock server, using gets/cas command pair.
     Inspired by unimr.memcachedlock .
-    There is no queue management: lock wil not be granted in the order it was
-    requested, but to the process which reaches memcache server at the right
-    time.
+    There is no queue management: lock will not be granted in the order it was
+    requested, but to the requester reaching memcache server at the right time.
     See thread.LockType documentation for API.
 
     How to break things:
