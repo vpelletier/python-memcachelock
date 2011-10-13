@@ -49,6 +49,10 @@ class MemcacheRLock(object):
             this parameter. Especially, don't mix up auto-allocated uid and
             provided uid on the same key. You have been warned.
         """
+        if getattr(client, 'cas', None) is None or getattr(client, 'gets',
+                None) is None:
+            raise TypeError('Client does not implement "gets" and/or "cas" '
+                'methods.')
         if key.endswith(LOCK_UID_KEY_SUFFIX):
             raise ValueError('Key conflicts with internal lock storage key '
                 '(ends with ' + LOCK_UID_KEY_SUFFIX + ')')
