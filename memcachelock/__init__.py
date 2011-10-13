@@ -20,7 +20,7 @@ class MemcacheRLock(object):
     See thread.LockType documentation for API.
 
     How to break things:
-    - create a lock instance, then 2**32 others (trash them along the way, you
+    - create a lock instance, then 2**64 others (trash them along the way, you
       don't need to keep them). Next one will think it is the first instance.
     - restart memcache server while one client has taken a lock (unles your
       memcache server restarts from persistent data properly written to disk).
