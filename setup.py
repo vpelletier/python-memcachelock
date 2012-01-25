@@ -1,19 +1,23 @@
-from setuptools import setup, find_packages
-import os
-
-version = '0.1'
+from setuptools import setup
 
 setup(
     name='memcachelock',
-    version=version,
-    description="Python wrapper to use memcache as a lock server",
-    keywords='Memcache Lock',
+    description="Use memcache as a lock server",
+    keywords='memcache lock',
+    version='0.1',
     author='Vincent Pelletier',
     author_email='plr.vincent@gmail.com',
+    url='http://github.com/vpelletier/python-memcachelock',
     license='GPL',
-    packages=find_packages(),
+    platforms=['any'],
     include_package_data=True,
-    zip_safe=False,
+    zip_safe=True,
+    py_modules=['memcachelock'],
+    classifiers=[
+        'Intended Audience :: Developers',
+        'License :: OSI Approved :: GNU General Public License (GPL)',
+        'Operating System :: OS Independent',
+    ],
     install_requires=[
         'setuptools',
         'python-memcached',
