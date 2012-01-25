@@ -127,7 +127,10 @@ class MemcacheRLock(object):
         return self.__get()[0]
 
     __enter__ = acquire
-    __exit__ = release
+
+    def __exit__(self, t, v, tb):
+        self.release()
+
     # BBB
     acquire_lock = acquire
     locked_lock = locked
