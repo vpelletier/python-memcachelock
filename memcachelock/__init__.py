@@ -1,4 +1,5 @@
 import thread
+import threading
 import time
 
 LOCK_UID_KEY_SUFFIX = '_uid'
@@ -18,6 +19,9 @@ class MemcacheRLock(object):
     There is no queue management: lock will not be granted in the order it was
     requested, but to the requester reaching memcache server at the right time.
     See thread.LockType documentation for API.
+
+    Note: MemcacheRLock ignores local threads. So it is not a drop-in
+    replacement for python's RLock. See class ThreadMemcacheRLock.
 
     How to break things:
     - create a lock instance, then 2**64 others (trash them along the way, you
@@ -154,6 +158,57 @@ class MemcacheRLock(object):
 class MemcacheLock(MemcacheRLock):
     reentrant = False
 
+class ThreadMemcacheRLock(object):
+    """
+    Thread-aware MemcacheRLock.
+
+    Combines a regular RLock with a MemcacheRLock, so it can be used in a
+    multithreaded app like an RLock, in addition to MemcacheRLock behaviour.
+    """
+    def __init__(self, *args, **kw):
+        # Local RLock-ing
+        self._rlock = threading.RLock()
+        # Remote RLock-ing
+        self._memcachelock = MemcacheRLock(*args, **kw)
+
+    def acquire(self, blocking=True):
+        if self._rlock.acquire(blocking):
+            return self._memcachelock.acquire(blocking)
+        return False
+
+    def release(self):
+        # This is sufficient, as:
+        # - if we don't own rlock, it will raise (we won't release memcache)
+        # - if memcache release raises, there is no way to recover (we thought
+        #   we were owning the lock)
+        self._rlock.release()
+        self._memcachelock.release()
+
+    __enter__ = acquire
+
+    def __exit__(self, t, v, tb):
+        self.release()
+
+    def locked(self):
+        if self._rlock.acquire(False):
+            try:
+                return self._memcachelock.locked()
+            finally:
+                self._rlock.release()
+        return False
+
+    @property
+    def uid(self):
+        return self._memcachelock.uid
+
+    def getOwnerUid(self):
+        return self._memcachelock.getOwnerUid()
+
+    # BBB
+    acquire_lock = acquire
+    locked_lock = locked
+    release_lock = release
+
 if __name__ == '__main__':
     # Run simple tests.
     # Only verifies the API, no race test is done.
@@ -167,7 +222,7 @@ if __name__ == '__main__':
     mc1.delete_multi((TEST_KEY_1, TEST_KEY_2, TEST_KEY_1 + LOCK_UID_KEY_SUFFIX,
         TEST_KEY_2 + LOCK_UID_KEY_SUFFIX))
 
-    for klass in (MemcacheLock, MemcacheRLock):
+    for klass in (MemcacheLock, MemcacheRLock, ThreadMemcacheRLock):
         # Two locks sharing the same key, a third for crosstalk checking.
         locka1 = klass(mc1, TEST_KEY_1)
         locka2 = klass(mc2, TEST_KEY_1)
@@ -204,12 +259,44 @@ if __name__ == '__main__':
         del lockb1
         mc1.delete_multi((TEST_KEY_1, TEST_KEY_2))
 
+    for klass in (MemcacheRLock, ThreadMemcacheRLock):
+        lock = klass(mc1, TEST_KEY_1)
+        assert lock.acquire(False)
+        assert lock.acquire(False)
+        lock.release()
+        assert lock.locked()
+        lock.release()
+        assert not lock.locked()
+
+    # I just need a mutable object. Event happens to have the API I need.
+    success = threading.Event()
+    def release(lock):
+        try:
+            lock.release()
+        except (RuntimeError, thread.error):
+            pass
+        else:
+            success.set()
     lock = MemcacheRLock(mc1, TEST_KEY_1)
-    assert lock.acquire(False)
-    assert lock.acquire(False)
-    lock.release()
-    assert lock.locked()
-    lock.release()
+    lock.acquire()
+    release_thread = threading.Thread(target=release, args=(lock, ))
+    release_thread.daemon = True
+    release_thread.start()
+    release_thread.join(1)
+    assert not release_thread.is_alive()
     assert not lock.locked()
+    assert success.is_set()
+    success.clear()
+    lock = ThreadMemcacheRLock(mc1, TEST_KEY_1)
+    lock.acquire()
+    release_thread = threading.Thread(target=release, args=(lock, ))
+    release_thread.daemon = True
+    release_thread.start()
+    release_thread.join(1)
+    assert not release_thread.is_alive()
+    assert lock.locked()
+    assert not success.is_set()
+    lock.release()
+
     print 'Passed.'
 

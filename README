@@ -11,10 +11,11 @@ Example usage:
 import memcachelock
 import memcache
 mc = memcache.Client(['127.0.0.1:11211'])
+rmcrlock = memcachelock.ThreadMemcacheRLock(mc, 'foo_resource')
 mcrlock = memcachelock.MemcacheRLock(mc, 'foo_resource')
 mclock = memcachelock.MemcacheLock(mc, 'foo_resource')
 
-mcrlock & mclock instances have the same API as thread.LockType (as of python
+All lock instances have the same API as thread.LockType (as of python
 2.7). The first is a re-entrant lock, the second is a simple lock.
 'foo_resource' is any string usable as a memcache key identifying some
 resource this lock protects. In Zope world, it might be a traversable object's
