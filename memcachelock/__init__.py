@@ -259,7 +259,13 @@ if __name__ == '__main__':
         del lockb1
         mc1.delete_multi((TEST_KEY_1, TEST_KEY_2))
 
+    # I just need a mutable object. Event happens to have the API I need.
+    success = threading.Event()
+    def release(lock):
+        if lock.acquire(False):
+            success.set()
     for klass in (MemcacheRLock, ThreadMemcacheRLock):
+        # Basic RLock-ish behaviour
         lock = klass(mc1, TEST_KEY_1)
         assert lock.acquire(False)
         assert lock.acquire(False)
@@ -267,30 +273,17 @@ if __name__ == '__main__':
         assert lock.locked()
         lock.release()
         assert not lock.locked()
-
-    # I just need a mutable object. Event happens to have the API I need.
-    success = threading.Event()
-    def release(lock):
-        if lock.acquire(False):
-            success.set()
-    lock = MemcacheRLock(mc1, TEST_KEY_1)
-    lock.acquire()
-    release_thread = threading.Thread(target=release, args=(lock, ))
-    release_thread.daemon = True
-    release_thread.start()
-    release_thread.join(1)
-    assert not release_thread.is_alive()
-    assert success.is_set()
-    success.clear()
-    mc1.delete(TEST_KEY_1)
-    lock = ThreadMemcacheRLock(mc1, TEST_KEY_1)
-    lock.acquire()
-    release_thread = threading.Thread(target=release, args=(lock, ))
-    release_thread.daemon = True
-    release_thread.start()
-    release_thread.join(1)
-    assert not release_thread.is_alive()
-    assert not success.is_set()
+        # RLock-ish behaviour with threads
+        lock.acquire()
+        release_thread = threading.Thread(target=release, args=(lock, ))
+        release_thread.daemon = True
+        release_thread.start()
+        release_thread.join(1)
+        assert not release_thread.is_alive()
+        assert (klass is ThreadMemcacheRLock) ^ success.is_set(), (klass,
+            success.is_set())
+        success.clear()
+        mc1.delete(TEST_KEY_1)
 
     print 'Passed.'
 
