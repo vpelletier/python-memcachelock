@@ -271,11 +271,7 @@ if __name__ == '__main__':
     # I just need a mutable object. Event happens to have the API I need.
     success = threading.Event()
     def release(lock):
-        try:
-            lock.release()
-        except (RuntimeError, thread.error):
-            pass
-        else:
+        if lock.acquire(False):
             success.set()
     lock = MemcacheRLock(mc1, TEST_KEY_1)
     lock.acquire()
@@ -284,9 +280,9 @@ if __name__ == '__main__':
     release_thread.start()
     release_thread.join(1)
     assert not release_thread.is_alive()
-    assert not lock.locked()
     assert success.is_set()
     success.clear()
+    mc1.delete(TEST_KEY_1)
     lock = ThreadMemcacheRLock(mc1, TEST_KEY_1)
     lock.acquire()
     release_thread = threading.Thread(target=release, args=(lock, ))
@@ -294,9 +290,7 @@ if __name__ == '__main__':
     release_thread.start()
     release_thread.join(1)
     assert not release_thread.is_alive()
-    assert lock.locked()
     assert not success.is_set()
-    lock.release()
 
     print 'Passed.'
 
