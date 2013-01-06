@@ -6,9 +6,10 @@ LOCK_UID_KEY_SUFFIX = '_uid'
 
 class MemcacheLockError(Exception):
     """
-    Lock acquired by another instance.
-    If caught outside MemcacheRLock/MemcacheLock instance, means a competitor
-    stole the lock or something is racing against us.
+    Unexpected memcached reaction.
+    Either memcached is misbehaving (refusing to hold a value...) or a
+    competitor could acquire the lock (because of software error, or memcached
+    evicted data we needed...).
     """
     pass
 
