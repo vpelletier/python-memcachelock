@@ -12,7 +12,7 @@ class MemcacheLockError(Exception):
     """
     pass
 
-class MemcacheRLock(object):
+class RLock(object):
     """
     Attempt at using memcached as a lock server, using gets/cas command pair.
     Inspired by unimr.memcachedlock .
@@ -20,8 +20,8 @@ class MemcacheRLock(object):
     requested, but to the requester reaching memcache server at the right time.
     See thread.LockType documentation for API.
 
-    Note: MemcacheRLock ignores local threads. So it is not a drop-in
-    replacement for python's RLock. See class ThreadMemcacheRLock.
+    Note: RLock ignores local threads. So it is not a drop-in replacement for
+    python's RLock. See class ThreadRLock.
 
     How to break things:
     - create a lock instance, then 2**64 others (trash them along the way, you
@@ -160,21 +160,21 @@ class MemcacheRLock(object):
         if not self.memcache.cas(self.key, (count and self.uid or None, count)):
             raise MemcacheLockError('Lock stolen')
 
-class MemcacheLock(MemcacheRLock):
+class Lock(RLock):
     reentrant = False
 
-class ThreadMemcacheRLock(object):
+class ThreadRLock(object):
     """
-    Thread-aware MemcacheRLock.
+    Thread-aware RLock.
 
-    Combines a regular RLock with a MemcacheRLock, so it can be used in a
-    multithreaded app like an RLock, in addition to MemcacheRLock behaviour.
+    Combines a regular RLock with a RLock, so it can be used in a
+    multithreaded app like an RLock, in addition to RLock behaviour.
     """
     def __init__(self, *args, **kw):
         # Local RLock-ing
         self._rlock = threading.RLock()
         # Remote RLock-ing
-        self._memcachelock = MemcacheRLock(*args, **kw)
+        self._memcachelock = RLock(*args, **kw)
 
     def acquire(self, blocking=True):
         if self._rlock.acquire(blocking):
@@ -214,6 +214,11 @@ class ThreadMemcacheRLock(object):
     locked_lock = locked
     release_lock = release
 
+# BBB
+MemcacheLock = Lock
+MemcacheRLock = RLock
+ThreadMemcacheRLock = ThreadRLock
+
 if __name__ == '__main__':
     # Run simple tests.
     # Only verifies the API, no race test is done.
@@ -227,7 +232,7 @@ if __name__ == '__main__':
     mc1.delete_multi((TEST_KEY_1, TEST_KEY_2, TEST_KEY_1 + LOCK_UID_KEY_SUFFIX,
         TEST_KEY_2 + LOCK_UID_KEY_SUFFIX))
 
-    for klass in (MemcacheLock, MemcacheRLock, ThreadMemcacheRLock):
+    for klass in (Lock, RLock, ThreadRLock):
         # Two locks sharing the same key, a third for crosstalk checking.
         locka1 = klass(mc1, TEST_KEY_1)
         locka2 = klass(mc2, TEST_KEY_1)
@@ -242,7 +247,7 @@ if __name__ == '__main__':
         checkLocked()
         assert locka1.acquire(False)
         checkLocked(a1=True, a2=True)
-        if klass is MemcacheLock:
+        if klass is Lock:
             assert not locka1.acquire(False)
         assert not locka2.acquire(False)
         checkLocked(a1=True, a2=True)
@@ -269,7 +274,7 @@ if __name__ == '__main__':
     def release(lock):
         if lock.acquire(False):
             success.set()
-    for klass in (MemcacheRLock, ThreadMemcacheRLock):
+    for klass in (RLock, ThreadRLock):
         # Basic RLock-ish behaviour
         lock = klass(mc1, TEST_KEY_1)
         assert lock.acquire(False)
@@ -285,7 +290,7 @@ if __name__ == '__main__':
         release_thread.start()
         release_thread.join(1)
         assert not release_thread.is_alive()
-        assert (klass is ThreadMemcacheRLock) ^ success.is_set(), (klass,
+        assert (klass is ThreadRLock) ^ success.is_set(), (klass,
             success.is_set())
         success.clear()
         mc1.delete(TEST_KEY_1)

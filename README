@@ -12,11 +12,11 @@ import memcachelock
 import memcache
 mc = memcache.Client(['127.0.0.1:11211'])
 # Non-reentrant lock
-mclock = memcachelock.MemcacheLock(mc, 'foo_resource')
+mclock = memcachelock.Lock(mc, 'foo_resource')
 # Per-connection reentrant lock
-mcrlock = memcachelock.MemcacheRLock(mc, 'foo_resource')
+mcrlock = memcachelock.RLock(mc, 'foo_resource')
 # Per-connection and per-thread reentrant lock
-rmcrlock = memcachelock.ThreadMemcacheRLock(mc, 'foo_resource')
+rmcrlock = memcachelock.ThreadRLock(mc, 'foo_resource')
 
 All lock instances have the same API as thread.LockType (as of python
 2.7).
