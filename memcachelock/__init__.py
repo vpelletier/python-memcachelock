@@ -118,8 +118,13 @@ class MemcacheRLock(object):
         assert count > 0
         self.__set(count - 1)
 
-    def locked(self):
-        return self.__get()[0] is not None
+    def locked(self, by_self=False):
+        """
+        by_self (bool, False)
+            If True, returns wether this instance holds this lock.
+        """
+        owner_uid = self.__get()[0]
+        return by_self and owner_uid == self.uid or owner_uid is not None
 
     def getOwnerUid(self):
         """
