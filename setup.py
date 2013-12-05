@@ -4,7 +4,7 @@ setup(
     name='memcachelock',
     description="Use memcache as a lock server",
     keywords='memcache lock',
-    version='0.3',
+    version='0.3.1',
     author='Vincent Pelletier',
     author_email='plr.vincent@gmail.com',
     url='http://github.com/vpelletier/python-memcachelock',
@@ -12,7 +12,7 @@ setup(
     platforms=['any'],
     include_package_data=True,
     zip_safe=True,
-    py_modules=['memcachelock'],
+    packages=['memcachelock'],
     classifiers=[
         'Intended Audience :: Developers',
         'License :: OSI Approved :: GNU General Public License (GPL)',
