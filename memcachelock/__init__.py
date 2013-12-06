@@ -13,6 +13,26 @@ class MemcacheLockError(Exception):
     """
     pass
 
+class MemcacheLockCasError(MemcacheLockError):
+    pass
+
+class MemcacheLockGetsError(MemcacheLockError):
+    pass
+
+class MemcacheLockReleaseError(MemcacheLockError, thread.error):
+    def __init__(self, key, releasing_uid, owner_uid):
+        super(MemcacheLockReleaseError, self).__init__()
+        self.key = key
+        self.releasing_uid = releasing_uid
+        self.owner_uid = owner_uid
+
+    def __str__(self):
+        return '%s: should be owned by me (%s), but owned by %s' % (
+            self.key,
+            self.releasing_uid,
+            self.owner_uid,
+        )
+
 class RLock(object):
     """
     Attempt at using memcached as a lock server, using gets/cas command pair.
@@ -104,7 +124,7 @@ class RLock(object):
                 # Nobody had it on __get call, try to acquire it.
                 try:
                     self.__set(1)
-                except MemcacheLockError:
+                except MemcacheLockCasError:
                     # Someting else was faster.
                     pass
                 else:
@@ -119,7 +139,7 @@ class RLock(object):
     def release(self):
         owner, count = self.__get()
         if owner != self.uid:
-            raise thread.error('release unlocked lock')
+            raise MemcacheLockReleaseError(self.key[1], self.uid, owner)
         assert count > 0
         self.__set(count - 1)
 
@@ -158,12 +178,12 @@ class RLock(object):
             self.memcache.add(self.key, (None, 0))
             value = self.memcache.gets(self.key)
             if value is None:
-                raise MemcacheLockError('Memcached caught fire')
+                raise MemcacheLockGetsError('Memcache not storing anything')
         return value
 
     def __set(self, count):
         if not self.memcache.cas(self.key, (count and self.uid or None, count)):
-            raise MemcacheLockError('Lock stolen')
+            raise MemcacheLockCasError('Lock stolen')
 
 class Lock(RLock):
     reentrant = False
