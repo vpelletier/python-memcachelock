@@ -10,7 +10,8 @@ this code before using it anywhere for the moment.
 Example usage:
 import memcachelock
 import memcache
-mc = memcache.Client(['127.0.0.1:11211'])
+# python-memcached doesn't do cas correctly without cache_cas
+mc = memcache.Client(['127.0.0.1:11211'], cache_cas=True)
 # Non-reentrant lock
 mclock = memcachelock.Lock(mc, 'foo_resource')
 # Per-connection reentrant lock

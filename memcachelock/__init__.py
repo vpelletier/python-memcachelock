@@ -36,7 +36,8 @@ class RLock(object):
     def __init__(self, client, key, interval=0.05, uid=None):
         """
         client (memcache.Client)
-            Memcache connection.
+            Memcache connection. Must support cas.
+            (by default, python-memcached DOES NOT unless you set cache_cas)
         key (str)
             Unique identifier for protected resource, common to all locks
             protecting this resource.
@@ -58,6 +59,9 @@ class RLock(object):
                 None) is None:
             raise TypeError('Client does not implement "gets" and/or "cas" '
                 'methods.')
+        if not getattr(client, 'cache_cas', True):
+            raise TypeError('Client cache_cas is disabled, "cas" will not '
+                'work.')
         if key.endswith(LOCK_UID_KEY_SUFFIX):
             raise ValueError('Key conflicts with internal lock storage key '
                 '(ends with ' + LOCK_UID_KEY_SUFFIX + ')')
