@@ -122,7 +122,7 @@ class RLock(object):
     def locked(self, by_self=False):
         """
         by_self (bool, False)
-            If True, returns wether this instance holds this lock.
+            If True, returns whether this instance holds this lock.
         """
         owner_uid = self.__get()[0]
         return by_self and owner_uid == self.uid or owner_uid is not None
