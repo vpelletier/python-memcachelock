@@ -13,6 +13,7 @@ setup(
     include_package_data=True,
     zip_safe=True,
     packages=['memcachelock'],
+    test_suite='tests',
     classifiers=[
         'Intended Audience :: Developers',
         'License :: OSI Approved :: GNU General Public License (GPL)',

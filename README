@@ -4,7 +4,7 @@ Disclaimer: This code is inspired by unimr.memcachedlock . I thought I could
 write a simpler version of MemcachedRLock class to keep dependencies minimal
 (python builtins plus python-memcache), and enforcing support of gets/cas API.
 
-WARNING: *very* little testing has been done so far. Better review & stress
+WARNING: little testing has been done so far. Better review & stress
 this code before using it anywhere for the moment.
 
 Example usage:
