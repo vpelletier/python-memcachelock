@@ -33,6 +33,9 @@ class MemcacheLockReleaseError(MemcacheLockError, thread.error):
             self.owner_uid,
         )
 
+class MemcacheLockUidError(MemcacheLockError):
+    pass
+
 class RLock(object):
     """
     Attempt at using memcached as a lock server, using gets/cas command pair.
@@ -99,6 +102,8 @@ class RLock(object):
                 # value to be set.
                 client.cas(uid_key, 0)
             uid = client.incr(uid_key)
+            if uid is None:
+                raise MemcacheLockUidError('incr failed to give number')
         self.uid = uid
         self.interval = interval
 
