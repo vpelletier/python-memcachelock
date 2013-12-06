@@ -144,6 +144,29 @@ def locker((LockType, key, sleep_time)):
     return None
 
 
+class TestExptime(TestLock):
+    def _test_exptime(self, LockType):
+        exptime = 1
+        locka = LockType(self.mc1, TEST_KEY_1, exptime=exptime)
+        lockb = LockType(self.mc2, TEST_KEY_1)
+        start = time.time()
+        self.assertTrue(locka.acquire(False))
+        self.assertTrue(lockb.acquire())
+        interval = time.time() - start
+        self.assertGreater(interval, exptime - 1)
+        self.assertLess(interval, exptime + 1)
+        lockb.release()
+
+    def test_exptime_lock(self):
+        self._test_exptime(Lock)
+
+    def test_exptime_rlock(self):
+        self._test_exptime(RLock)
+
+    def test_exptime_threadrlock(self):
+        self._test_exptime(ThreadRLock)
+
+
 class TestSwarm(TestLock):
     SWARM_SIZE = 30
 

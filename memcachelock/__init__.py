@@ -56,7 +56,7 @@ class RLock(object):
     """
     reentrant = True
 
-    def __init__(self, client, key, interval=0.05, uid=None):
+    def __init__(self, client, key, interval=0.05, uid=None, exptime=0):
         """
         client (memcache.Client)
             Memcache connection. Must support cas.
@@ -77,6 +77,9 @@ class RLock(object):
             WARNING: You must be very sure of what you do before fiddling with
             this parameter. Especially, don't mix up auto-allocated uid and
             provided uid on the same key. You have been warned.
+        exptime (int)
+            memcache-style expiration time. See memcache protocol
+            documentation on <exptime>.
         """
         if getattr(client, 'cas', None) is None or getattr(client, 'gets',
                 None) is None:
@@ -106,6 +109,7 @@ class RLock(object):
                 raise MemcacheLockUidError('incr failed to give number')
         self.uid = uid
         self.interval = interval
+        self.exptime = exptime
 
     def __repr__(self):
         return '<%s(key=%r, interval=%r, uid=%r) at 0x%x>' % (
@@ -187,7 +191,8 @@ class RLock(object):
         return value
 
     def __set(self, count):
-        if not self.memcache.cas(self.key, (count and self.uid or None, count)):
+        if not self.memcache.cas(self.key, (count and self.uid or None, count),
+                self.exptime):
             raise MemcacheLockCasError('Lock stolen')
 
 class Lock(RLock):
