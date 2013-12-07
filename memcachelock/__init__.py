@@ -66,9 +66,9 @@ class RLock(object):
             protecting this resource.
             Can be any reasonable string for use as a memcache key.
             Must not end with LOCK_UID_KEY_SUFFIX.
-        interval (int/float, 0.05)
+        interval (float)
             Period between consecutive lock taking attemps in blocking mode.
-        uid (any picklable object, None)
+        uid (any picklable object)
             Unique lock instance identifier for given key.
             If None, a new uid will be generated for each new instance.
             Allows overriding default uid allocation. Can also be handy to
@@ -154,7 +154,7 @@ class RLock(object):
 
     def locked(self, by_self=False):
         """
-        by_self (bool, False)
+        by_self (bool)
             If True, returns whether this instance holds this lock.
         """
         owner_uid = self.__get()[0]
