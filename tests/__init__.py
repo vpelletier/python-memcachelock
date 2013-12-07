@@ -173,7 +173,10 @@ class TestSwarm(TestLock):
     def _test_deadlock(self, LockType):
         SLEEP_TIME = 0.001
 
-        pool = multiprocessing.Pool(processes=self.SWARM_SIZE)
+        try:
+            pool = multiprocessing.Pool(processes=self.SWARM_SIZE)
+        except OSError:
+            raise unittest.SkipTest('multiprocessing.Pool call failed')
         start = time.time()
         list(pool.imap_unordered(
             locker,
