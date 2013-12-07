@@ -1,3 +1,49 @@
+"""
+Use memcached as a lock server.
+
+API is a superset of thread.LockType: same methods, same positional and
+named arguments, thread.error subclass exception raised when releasing
+an unacquired lock.
+
+RLock (and subclasses) is as thread-safe as provided memcache connection.
+python-memcached is thread-safe (each thread has its own socket).
+
+The goal of this class is not to provide a perfect networked lock.
+Memcached prunes entries or looses them by restart, network may be
+unreliable, etc. Each of these can lead to a lock being stolen.
+The following constructor options affect lock theft detection/prevention:
+- careful_release
+  When True, lock theft is detected upon release (MemcacheLockReleaseError
+  is raised). Note that theft may not be currently occuring, all this
+  detects is that current instance does not own the lock - maybe none do.
+  This has a (slight) performance cost.
+- stand_in
+  When True, operations succeed even when memcached is unreachable.
+  Applications which check consistency after operation should enable this
+  to prevent memcached unreachability from blocking them.
+
+How it works:
+- Locks protect access to a shared resource. The relationship between a
+  resource and its lock is called a <key> in this class.
+- Several lock instances can compete for a given resource. Each instance is
+  identified by its <uid>, which can be auto-allocated.
+- Upon acquisition of a (non-acquired) lock, "add" command is sent to
+  memcached for <key> with lock's <uid> as value. This succeeds only if
+  memcached didn't knew that <key>, and is atomic.
+- Further acquisitions for re-entrant locks are locally handled, there is
+  no network overhead.
+- Upon release of an acquired lock, "delete" command is sent to memcached
+  for <key>, releasing the lock. It is optionally (enabled by default)
+  preceeded by a check that memcached still holds our <uid>, to avoid
+  releasing some other instance's lock.
+
+How to break things:
+- create a lock instance, then 2**64 others (trash them along the way, you
+  don't need to keep them). Next one will think it is the first instance.
+- restart memcache server while one client has taken a lock (unles your
+  memcache server restarts from persistent data properly written to disk).
+- have memcache server prune entries
+"""
 import thread
 import threading
 import time
@@ -17,10 +63,17 @@ class MemcacheLockError(Exception):
 
 
 class MemcacheLockReleaseError(MemcacheLockError, thread.error):
+    """
+    Lock theft detected on release.
+    """
     pass
 
 
 class MemcacheLockUidError(MemcacheLockError):
+    """
+    UID allocation failed.
+    See stand_in for a possible solution.
+    """
     pass
 
 
@@ -34,21 +87,11 @@ class MemcacheLockNetworkError(MemcacheLockError):
 
 class RLock(object):
     """
-    Attempt at using memcached as a lock server, using gets/cas command pair.
-    Inspired by unimr.memcachedlock .
-    There is no queue management: lock will not be granted in the order it was
-    requested, but to the requester reaching memcache server at the right time.
-    See thread.LockType documentation for API.
+    Network-reentrant lock.
 
-    Note: RLock ignores local threads. So it is not a drop-in replacement for
-    python's RLock. See class ThreadRLock.
-
-    How to break things:
-    - create a lock instance, then 2**64 others (trash them along the way, you
-      don't need to keep them). Next one will think it is the first instance.
-    - restart memcache server while one client has taken a lock (unles your
-      memcache server restarts from persistent data properly written to disk).
-    - have memcache server prune entries
+    Re-entry is per uid. An RLock instance can be simultaneously
+    acquired by any number of threads.
+    See ThreadRLock if you need thread-aware reentrant locking.
     """
     reentrant = True
 
@@ -150,8 +193,19 @@ class RLock(object):
 
     def acquire(self, blocking=True, timeout=None):
         """
-        timeout (float, None)
+        Acquire the lock.
+
+        blocking (bool)
+            If true, wait until lock can be acquired.
+        timeout (float)
             How long to wait for lock, in seconds.
+            None means block until lock can be acquired.
+
+        Returns True if the lock could be acquired, False otherwise.
+
+        If memcached cannot be reached and stand_in is disabled, raise
+        MemcacheLockNetworkError. When stand_in is enabled, consider the
+        acquirition as successful instead.
         """
         if self._locked and self.reentrant:
             new_locked = self._locked + 1
@@ -193,6 +247,18 @@ class RLock(object):
         return True
 
     def release(self):
+        """
+        Release the lock.
+
+        If lock is locally known as released, raise
+        MemcacheLockReleaseError .
+        If lock is discovered as not acquired on memcached:
+        - if stand_in is disabled, raise MemcacheLockNetworkError
+        - if stand_in is enabled, release the lock once
+        If careful_release is enabled and lock theft is detected:
+        - if stand_in is disabled, raise MemcacheLockReleaseError
+        - if stand_in is enabled, release the lock once
+        """
         if not self._locked:
             raise MemcacheLockReleaseError('release unlocked lock')
         if self.careful_release:
@@ -213,6 +279,8 @@ class RLock(object):
 
     def locked(self, by_self=False):
         """
+        Tell if the lock is currently held.
+
         by_self (bool)
             If True, returns whether this instance holds this lock.
         """
@@ -252,15 +320,18 @@ class RLock(object):
 
 
 class Lock(RLock):
+    """
+    Network non-reentrant lock.
+    """
     reentrant = False
 
 
 class ThreadRLock(RLock):
     """
-    Thread-aware RLock.
+    Thread-aware network reentrant lock.
 
-    Combines a regular RLock with a RLock, so it can be used in a
-    multithreaded app like an RLock, in addition to RLock behaviour.
+    Combines a regular RLock with a network reentrant lock, so it can be used
+    in a multithreaded process.
     """
     def __init__(self, *args, **kw):
         """
@@ -274,11 +345,21 @@ class ThreadRLock(RLock):
         super(ThreadRLock, self).__init__(persistent=False, *args, **kw)
 
     def acquire(self, blocking=True, **kw):
+        """
+        Acquire the lock.
+
+        See memcachelock.RLock.acquire and thread.LockType.acquire .
+        """
         if self._rlock.acquire(blocking):
             return super(ThreadRLock, self).acquire(blocking, **kw)
         return False
 
     def release(self):
+        """
+        Release the lock.
+
+        See memcachelock.RLock.release and thread.LockType.release .
+        """
         # This is sufficient, as:
         # - if we don't own rlock, it will raise (we won't release memcache)
         # - if memcache release raises, there is no way to recover (we thought
