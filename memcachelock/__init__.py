@@ -54,7 +54,7 @@ class RLock(object):
 
     def __init__(
             self, client, key, interval=0.05, uid=None, exptime=0,
-            persistent=True, careful_release=True, backoff=0,
+            persistent=True, careful_release=True, backoff=0, stand_in=False,
             ):
         """
         client (memcache.Client)
@@ -72,6 +72,7 @@ class RLock(object):
             Allows overriding default uid allocation. Can also be handy to
             recover lock when previous instance with given uid died with lock
             acquired.
+            Mandatory when stand_in is true.
             WARNING: You must be very sure of what you do before fiddling with
             this parameter. Especially, don't mix up auto-allocated uid and
             provided uid on the same key. You have been warned.
@@ -91,6 +92,13 @@ class RLock(object):
         backoff (float)
             Upper bound of quadratic <interval> backoff.
             Quadratic backoff is disabled when less or equal to <interval>.
+        stand_in (bool)
+            When memcached is unreachable and stand_in is true, pretend all
+            operations succeed. This prevents application lockup when memcached
+            goes away.
+            You should consider disabling careful_release when enabling
+            stand_in, otherwise you would get errors when memcached becomes
+            available again.
         """
         if key.endswith(LOCK_UID_KEY_SUFFIX):
             raise ValueError(
@@ -104,6 +112,8 @@ class RLock(object):
         uid_key = (key_hash, key + LOCK_UID_KEY_SUFFIX)
         client.check_key(uid_key[1])
         if uid is None:
+            if stand_in:
+                raise ValueError('uid must be provided when stand_in is true')
             client.add(uid_key, 0)
             uid = client.incr(uid_key)
             if uid is None:
@@ -114,6 +124,7 @@ class RLock(object):
         self.persistent = persistent
         self.careful_release = careful_release
         self.backoff = max(interval, backoff)
+        self.stand_in = stand_in
         self.resync()
 
     def resync(self):
@@ -166,6 +177,8 @@ class RLock(object):
             # so check if server is still alive by peeking at lock owner.
             if not self.memcache.get(self.key):
                 if retrying:
+                    if self.stand_in:
+                        break
                     raise MemcacheLockNetworkError
                 # Maybe lock was just released, retry immediately.
                 retrying = True
@@ -184,7 +197,8 @@ class RLock(object):
             raise MemcacheLockReleaseError('release unlocked lock')
         if self.careful_release:
             owner = self.getOwnerUid()
-            if owner != self.uid:
+            if owner != self.uid and (
+                    owner is not None or not self.stand_in):
                 raise MemcacheLockReleaseError(
                     '%s: should be owned by me (%s), but owned by %s' % (
                         self.key[1], self.uid, owner))
@@ -192,9 +206,9 @@ class RLock(object):
         if self._locked:
             if self.persistent and not self.memcache.replace(
                     self.key, (self.uid, self._locked), self.exptime,
-                    ):
+                    ) and not self.stand_in:
                 raise MemcacheLockNetworkError
-        elif not self.memcache.delete(self.key):
+        elif not self.memcache.delete(self.key) and not self.stand_in:
             raise MemcacheLockNetworkError
 
     def locked(self, by_self=False):
