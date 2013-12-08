@@ -24,6 +24,14 @@ class MemcacheLockUidError(MemcacheLockError):
     pass
 
 
+class MemcacheLockNetworkError(MemcacheLockError):
+    """
+    Memcached could not be reached.
+    See stand_in for a possible solution.
+    """
+    pass
+
+
 class RLock(object):
     """
     Attempt at using memcached as a lock server, using gets/cas command pair.
@@ -150,9 +158,19 @@ class RLock(object):
         else:
             deadline = time.time() + timeout
             interval = min(self.interval, timeout)
+        retrying = False
         while True:
             if method(self.key, (self.uid, new_locked), self.exptime):
                 break
+            # python-memcached masquerades network errors as command failure,
+            # so check if server is still alive by peeking at lock owner.
+            if not self.memcache.get(self.key):
+                if retrying:
+                    raise MemcacheLockNetworkError
+                # Maybe lock was just released, retry immediately.
+                retrying = True
+                continue
+            retrying = False
             # I don't have the lock.
             if not blocking or time.time() >= deadline:
                 return False
@@ -172,12 +190,12 @@ class RLock(object):
                         self.key[1], self.uid, owner))
         self._locked -= 1
         if self._locked:
-            if self.persistent:
-                self.memcache.replace(
+            if self.persistent and not self.memcache.replace(
                     self.key, (self.uid, self._locked), self.exptime,
-                )
-        else:
-            self.memcache.delete(self.key)
+                    ):
+                raise MemcacheLockNetworkError
+        elif not self.memcache.delete(self.key):
+            raise MemcacheLockNetworkError
 
     def locked(self, by_self=False):
         """
