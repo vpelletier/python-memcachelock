@@ -198,7 +198,7 @@ class RLock(object):
 class Lock(RLock):
     reentrant = False
 
-class ThreadRLock(object):
+class ThreadRLock(RLock):
     """
     Thread-aware RLock.
 
@@ -208,12 +208,11 @@ class ThreadRLock(object):
     def __init__(self, *args, **kw):
         # Local RLock-ing
         self._rlock = threading.RLock()
-        # Remote RLock-ing
-        self._memcachelock = RLock(*args, **kw)
+        super(ThreadRLock, self).__init__(*args, **kw)
 
     def acquire(self, blocking=True):
         if self._rlock.acquire(blocking):
-            return self._memcachelock.acquire(blocking)
+            return super(ThreadRLock, self).acquire(blocking)
         return False
 
     def release(self):
@@ -222,7 +221,7 @@ class ThreadRLock(object):
         # - if memcache release raises, there is no way to recover (we thought
         #   we were owning the lock)
         self._rlock.release()
-        self._memcachelock.release()
+        super(ThreadRLock, self).release()
 
     __enter__ = acquire
 
@@ -244,17 +243,10 @@ class ThreadRLock(object):
         if by_self and not has_lock:
             return False
         try:
-            return self._memcachelock.locked(by_self=by_self)
+            return super(ThreadRLock, self).locked(by_self=by_self)
         finally:
             if has_lock:
                 self._rlock.release()
-
-    @property
-    def uid(self):
-        return self._memcachelock.uid
-
-    def getOwnerUid(self):
-        return self._memcachelock.getOwnerUid()
 
     # BBB
     acquire_lock = acquire
