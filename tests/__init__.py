@@ -4,6 +4,7 @@ import thread
 import threading
 import time
 import multiprocessing
+import gc
 
 import memcache
 from memcachelock import RLock, Lock, ThreadRLock, LOCK_UID_KEY_SUFFIX
@@ -113,6 +114,19 @@ class TestBasicLogic(TestLock):
         self.assertFalse(release_thread.is_alive())
         return success.is_set()
 
+    def _test_persistent(self, LockType):
+        UID = 1
+        lock = LockType(self.mc1, TEST_KEY_1, uid=UID)
+        self.assertTrue(lock.acquire(False))
+        before_destruction = self.mc1.get(TEST_KEY_1)
+        # Lock is not released on destruction
+        del lock
+        gc.collect()
+        self.assertEqual(self.mc1.get(TEST_KEY_1), before_destruction)
+        # Lock state is initialised from memcached on creation
+        lock = LockType(self.mc1, TEST_KEY_1, uid=UID)
+        self.assertTrue(lock.locked(by_self=True))
+
     def test_normal_lock(self):
         self._test_normal(Lock)
 
@@ -133,6 +147,15 @@ class TestBasicLogic(TestLock):
 
     def test_threaded_threadrlock(self):
         self.assertFalse(self._test_reentrant_thread(ThreadRLock))
+
+    def test_persistent_lock(self):
+        self._test_persistent(Lock)
+
+    def test_persistent_rlock(self):
+        self._test_persistent(RLock)
+
+    def test_persistent_threadrlock(self):
+        self._test_persistent(ThreadRLock)
 
 
 def locker((LockType, key, sleep_time)):
