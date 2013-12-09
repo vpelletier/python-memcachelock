@@ -4,6 +4,7 @@ import time
 
 LOCK_UID_KEY_SUFFIX = '_uid'
 
+
 class MemcacheLockError(Exception):
     """
     Unexpected memcached reaction.
@@ -13,11 +14,14 @@ class MemcacheLockError(Exception):
     """
     pass
 
+
 class MemcacheLockCasError(MemcacheLockError):
     pass
 
+
 class MemcacheLockGetsError(MemcacheLockError):
     pass
+
 
 class MemcacheLockReleaseError(MemcacheLockError, thread.error):
     def __init__(self, key, releasing_uid, owner_uid):
@@ -33,8 +37,10 @@ class MemcacheLockReleaseError(MemcacheLockError, thread.error):
             self.owner_uid,
         )
 
+
 class MemcacheLockUidError(MemcacheLockError):
     pass
+
 
 class RLock(object):
     """
@@ -81,16 +87,17 @@ class RLock(object):
             memcache-style expiration time. See memcache protocol
             documentation on <exptime>.
         """
-        if getattr(client, 'cas', None) is None or getattr(client, 'gets',
-                None) is None:
-            raise TypeError('Client does not implement "gets" and/or "cas" '
-                'methods.')
+        if getattr(client, 'cas', None) is None or getattr(
+                client, 'gets', None) is None:
+            raise TypeError(
+                'Client does not implement "gets" and/or "cas" methods.')
         if not getattr(client, 'cache_cas', True):
-            raise TypeError('Client cache_cas is disabled, "cas" will not '
-                'work.')
+            raise TypeError(
+                'Client cache_cas is disabled, "cas" will not work.')
         if key.endswith(LOCK_UID_KEY_SUFFIX):
-            raise ValueError('Key conflicts with internal lock storage key '
-                '(ends with ' + LOCK_UID_KEY_SUFFIX + ')')
+            raise ValueError(
+                'Key conflicts with internal lock storage key (ends with ' +
+                LOCK_UID_KEY_SUFFIX + ')')
         self.memcache = client
         # Compute hash once only. Also used to keep lock uid close to the
         # value it manages.
@@ -191,12 +198,14 @@ class RLock(object):
         return value
 
     def __set(self, count):
-        if not self.memcache.cas(self.key, (count and self.uid or None, count),
-                self.exptime):
+        if not self.memcache.cas(
+                self.key, (count and self.uid or None, count), self.exptime):
             raise MemcacheLockCasError('Lock stolen')
+
 
 class Lock(RLock):
     reentrant = False
+
 
 class ThreadRLock(RLock):
     """
