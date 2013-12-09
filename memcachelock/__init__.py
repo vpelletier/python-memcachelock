@@ -229,13 +229,25 @@ class ThreadRLock(object):
     def __exit__(self, t, v, tb):
         self.release()
 
-    def locked(self):
-        if self._rlock.acquire(False):
-            try:
-                return self._memcachelock.locked()
-            finally:
+    def locked(self, by_self=False):
+        """
+        Tell if the lock is currently held.
+
+        See memcachelock.RLock.locked .
+        """
+        # by_self | has_lock | return
+        # False   | False    | memcache
+        # False   | True     | memcache
+        # True    | False    | False
+        # True    | True     | memcache
+        has_lock = self._rlock.acquire(False)
+        if by_self and not has_lock:
+            return False
+        try:
+            return self._memcachelock.locked(by_self=by_self)
+        finally:
+            if has_lock:
                 self._rlock.release()
-        return False
 
     @property
     def uid(self):
