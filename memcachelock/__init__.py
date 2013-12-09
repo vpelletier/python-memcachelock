@@ -45,7 +45,7 @@ class RLock(object):
 
     def __init__(
             self, client, key, interval=0.05, uid=None, exptime=0,
-            persistent=True, careful_release=True,
+            persistent=True, careful_release=True, backoff=0,
             ):
         """
         client (memcache.Client)
@@ -79,6 +79,9 @@ class RLock(object):
             Get lock owner from memcached before releasing lock, to detect
             theft. Disabling this test saves a network roundtrip for each
             release.
+        backoff (float)
+            Upper bound of quadratic <interval> backoff.
+            Quadratic backoff is disabled when less or equal to <interval>.
         """
         if key.endswith(LOCK_UID_KEY_SUFFIX):
             raise ValueError(
@@ -101,6 +104,7 @@ class RLock(object):
         self.exptime = exptime
         self.persistent = persistent
         self.careful_release = careful_release
+        self.backoff = max(interval, backoff)
         self.resync()
 
     def resync(self):
@@ -135,13 +139,15 @@ class RLock(object):
         else:
             new_locked = 1
             method = self.memcache.add
+        interval = self.interval
         while True:
             if method(self.key, (self.uid, new_locked), self.exptime):
                 break
             # I don't have the lock.
             if not blocking:
                 return False
-            time.sleep(self.interval)
+            time.sleep(interval)
+            interval = min(self.backoff, interval * 2)
         self._locked = new_locked
         return True
 
