@@ -45,7 +45,7 @@ class RLock(object):
 
     def __init__(
             self, client, key, interval=0.05, uid=None, exptime=0,
-            persistent=True,
+            persistent=True, careful_release=True,
             ):
         """
         client (memcache.Client)
@@ -75,6 +75,10 @@ class RLock(object):
             Costs one network roundtrip on each reentrant action (non-first
             acquisition and non-last release).
             When exptime is an offset, reentrant actions extend lock lifespan.
+        careful_release (bool)
+            Get lock owner from memcached before releasing lock, to detect
+            theft. Disabling this test saves a network roundtrip for each
+            release.
         """
         if key.endswith(LOCK_UID_KEY_SUFFIX):
             raise ValueError(
@@ -96,6 +100,7 @@ class RLock(object):
         self.interval = interval
         self.exptime = exptime
         self.persistent = persistent
+        self.careful_release = careful_release
         self.resync()
 
     def resync(self):
@@ -143,12 +148,12 @@ class RLock(object):
     def release(self):
         if not self._locked:
             raise MemcacheLockReleaseError('release unlocked lock')
-        # XXX: "getOwnerUid" not strictly required. Add an option to bypass ?
-        owner = self.getOwnerUid()
-        if owner != self.uid:
-            raise MemcacheLockReleaseError(
-                '%s: should be owned by me (%s), but owned by %s' % (
-                    self.key[1], self.uid, owner))
+        if self.careful_release:
+            owner = self.getOwnerUid()
+            if owner != self.uid:
+                raise MemcacheLockReleaseError(
+                    '%s: should be owned by me (%s), but owned by %s' % (
+                        self.key[1], self.uid, owner))
         self._locked -= 1
         if self._locked:
             if self.persistent:

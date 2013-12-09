@@ -158,6 +158,25 @@ class TestBasicLogic(TestLock):
         gc.collect()
         self.assertEqual(None, self.mc1.get(TEST_KEY_1))
 
+    def _test_careful_release(self, LockType):
+        thief = 'lock_thief'
+        # With careful_release enabled, stolen lock is detected
+        lock1 = LockType(self.mc1, TEST_KEY_1)
+        self.assertTrue(lock1.acquire(False))
+        before_theft = self.mc1.get(TEST_KEY_1)
+        self.mc1.set(TEST_KEY_1, (thief, 1))
+        self.assertRaises(MemcacheLockReleaseError, lock1.release)
+        # ...and lock is still granted to thief
+        self.assertEqual(lock1.getOwnerUid(), thief)
+        self.mc1.set(TEST_KEY_1, before_theft)
+        # Without, it's not
+        lock2 = LockType(self.mc1, TEST_KEY_2, careful_release=False)
+        self.assertTrue(lock2.acquire(False))
+        self.mc1.set(TEST_KEY_2, thief)
+        lock2.release()
+        # ...and lock is really released
+        self.assertEqual(self.mc1.get(TEST_KEY_2), None)
+
     def test_normal_lock(self):
         self._test_normal(Lock)
 
@@ -187,6 +206,15 @@ class TestBasicLogic(TestLock):
 
     def test_persistent_threadrlock(self):
         self._test_persistent(ThreadRLock)
+
+    def test_careful_release_lock(self):
+        self._test_careful_release(Lock)
+
+    def test_careful_release_rlock(self):
+        self._test_careful_release(RLock)
+
+    def test_careful_release_threadrlock(self):
+        self._test_careful_release(ThreadRLock)
 
 
 def locker((LockType, key, sleep_time)):
