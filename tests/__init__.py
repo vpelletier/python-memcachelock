@@ -263,6 +263,46 @@ class TestExptime(TestLock):
         self._test_exptime(ThreadRLock)
 
 
+class TestTimeout(TestLock):
+    lockb_backoff = 0
+    lockb_interval = 0.05
+    timeout = .05
+
+    def _test_timeout(self, LockType):
+        timeout = self.timeout
+        locka = LockType(self.mc1, TEST_KEY_1)
+        lockb = LockType(self.mc2, TEST_KEY_1, interval=self.lockb_interval,
+            backoff=self.lockb_backoff)
+        self.assertTrue(locka.acquire(False))
+        start = time.time()
+        self.assertFalse(lockb.acquire(timeout=timeout))
+        interval = time.time() - start
+        self.assertGreater(interval, timeout * .5)
+        self.assertLess(interval, timeout * 1.5)
+        locka.release()
+
+    def test_timeout_lock(self):
+        self._test_timeout(Lock)
+
+    def test_timeout_rlock(self):
+        self._test_timeout(RLock)
+
+    def test_timeout_threadrlock(self):
+        self._test_timeout(ThreadRLock)
+
+
+class TestBackoffTimeout(TestTimeout):
+    lockb_backoff = TestTimeout.timeout * 10
+
+
+class TestIntervalTimeout(TestTimeout):
+    lockb_interval = TestTimeout.timeout * 10
+
+
+class TestIntervalBackoffTimeout(TestBackoffTimeout, TestIntervalTimeout):
+    pass
+
+
 class TestSwarm(TestLock):
     SWARM_SIZE = 30
 

@@ -3,6 +3,7 @@ import threading
 import time
 
 LOCK_UID_KEY_SUFFIX = '_uid'
+INF = float('inf')
 
 
 class MemcacheLockError(Exception):
@@ -128,7 +129,11 @@ class RLock(object):
             id(self),
         )
 
-    def acquire(self, blocking=True):
+    def acquire(self, blocking=True, timeout=None):
+        """
+        timeout (float, None)
+            How long to wait for lock, in seconds.
+        """
         if self._locked and self.reentrant:
             new_locked = self._locked + 1
             if self.persistent:
@@ -139,15 +144,20 @@ class RLock(object):
         else:
             new_locked = 1
             method = self.memcache.add
-        interval = self.interval
+        if timeout is None:
+            deadline = INF
+            interval = self.interval
+        else:
+            deadline = time.time() + timeout
+            interval = min(self.interval, timeout)
         while True:
             if method(self.key, (self.uid, new_locked), self.exptime):
                 break
             # I don't have the lock.
-            if not blocking:
+            if not blocking or time.time() >= deadline:
                 return False
             time.sleep(interval)
-            interval = min(self.backoff, interval * 2)
+            interval = min(self.backoff, interval * 2, deadline - time.time())
         self._locked = new_locked
         return True
 
@@ -231,9 +241,9 @@ class ThreadRLock(RLock):
         self._rlock = threading.RLock()
         super(ThreadRLock, self).__init__(persistent=False, *args, **kw)
 
-    def acquire(self, blocking=True):
+    def acquire(self, blocking=True, **kw):
         if self._rlock.acquire(blocking):
-            return super(ThreadRLock, self).acquire(blocking)
+            return super(ThreadRLock, self).acquire(blocking, **kw)
         return False
 
     def release(self):
