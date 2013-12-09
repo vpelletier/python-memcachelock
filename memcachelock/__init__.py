@@ -106,11 +106,7 @@ class RLock(object):
         uid_key = (key_hash, key + LOCK_UID_KEY_SUFFIX)
         client.check_key(uid_key[1])
         if uid is None:
-            if client.gets(uid_key) is None:
-                # Nobody has used this lock yet (or it was lost in a server
-                # restart). Init to 0. Don't care if it fails, we just need a
-                # value to be set.
-                client.cas(uid_key, 0)
+            client.add(uid_key, 0)
             uid = client.incr(uid_key)
             if uid is None:
                 raise MemcacheLockUidError('incr failed to give number')
