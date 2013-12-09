@@ -15,27 +15,8 @@ class MemcacheLockError(Exception):
     pass
 
 
-class MemcacheLockCasError(MemcacheLockError):
-    pass
-
-
-class MemcacheLockGetsError(MemcacheLockError):
-    pass
-
-
 class MemcacheLockReleaseError(MemcacheLockError, thread.error):
-    def __init__(self, key, releasing_uid, owner_uid):
-        super(MemcacheLockReleaseError, self).__init__()
-        self.key = key
-        self.releasing_uid = releasing_uid
-        self.owner_uid = owner_uid
-
-    def __str__(self):
-        return '%s: should be owned by me (%s), but owned by %s' % (
-            self.key,
-            self.releasing_uid,
-            self.owner_uid,
-        )
+    pass
 
 
 class MemcacheLockUidError(MemcacheLockError):
@@ -62,11 +43,13 @@ class RLock(object):
     """
     reentrant = True
 
-    def __init__(self, client, key, interval=0.05, uid=None, exptime=0):
+    def __init__(
+            self, client, key, interval=0.05, uid=None, exptime=0,
+            persistent=True,
+            ):
         """
         client (memcache.Client)
-            Memcache connection. Must support cas.
-            (by default, python-memcached DOES NOT unless you set cache_cas)
+            Memcache connection.
         key (str)
             Unique identifier for protected resource, common to all locks
             protecting this resource.
@@ -86,14 +69,13 @@ class RLock(object):
         exptime (int)
             memcache-style expiration time. See memcache protocol
             documentation on <exptime>.
+        persistent (bool)
+            Whether to restore previous lock acquisition state on a new
+            instance.
+            Costs one network roundtrip on each reentrant action (non-first
+            acquisition and non-last release).
+            When exptime is an offset, reentrant actions extend lock lifespan.
         """
-        if getattr(client, 'cas', None) is None or getattr(
-                client, 'gets', None) is None:
-            raise TypeError(
-                'Client does not implement "gets" and/or "cas" methods.')
-        if not getattr(client, 'cache_cas', True):
-            raise TypeError(
-                'Client cache_cas is disabled, "cas" will not work.')
         if key.endswith(LOCK_UID_KEY_SUFFIX):
             raise ValueError(
                 'Key conflicts with internal lock storage key (ends with ' +
@@ -113,6 +95,20 @@ class RLock(object):
         self.uid = uid
         self.interval = interval
         self.exptime = exptime
+        self.persistent = persistent
+        self.resync()
+
+    def resync(self):
+        """
+        Resynchronise internal state with memcached state.
+
+        Cures stuck lock object when memcached evicted an entry (especially
+        when exptime is used).
+        """
+        owner, locked = self.__get()
+        if owner != self.uid:
+            locked = 0
+        self._locked = locked
 
     def __repr__(self):
         return '<%s(key=%r, interval=%r, uid=%r) at 0x%x>' % (
@@ -124,44 +120,52 @@ class RLock(object):
         )
 
     def acquire(self, blocking=True):
+        if self._locked and self.reentrant:
+            new_locked = self._locked + 1
+            if self.persistent:
+                method = self.memcache.replace
+            else:
+                self._locked = new_locked
+                return True
+        else:
+            new_locked = 1
+            method = self.memcache.add
         while True:
-            owner, count = self.__get()
-            if owner == self.uid:
-                # I have the lock already.
-                assert count
-                if self.reentrant:
-                    self.__set(count + 1)
-                    return True
-            elif owner is None:
-                # Nobody had it on __get call, try to acquire it.
-                try:
-                    self.__set(1)
-                except MemcacheLockCasError:
-                    # Someting else was faster.
-                    pass
-                else:
-                    # I got the lock.
-                    return True
+            if method(self.key, (self.uid, new_locked), self.exptime):
+                break
             # I don't have the lock.
             if not blocking:
-                break
+                return False
             time.sleep(self.interval)
-        return False
+        self._locked = new_locked
+        return True
 
     def release(self):
-        owner, count = self.__get()
+        if not self._locked:
+            raise MemcacheLockReleaseError('release unlocked lock')
+        # XXX: "getOwnerUid" not strictly required. Add an option to bypass ?
+        owner = self.getOwnerUid()
         if owner != self.uid:
-            raise MemcacheLockReleaseError(self.key[1], self.uid, owner)
-        assert count > 0
-        self.__set(count - 1)
+            raise MemcacheLockReleaseError(
+                '%s: should be owned by me (%s), but owned by %s' % (
+                    self.key[1], self.uid, owner))
+        self._locked -= 1
+        if self._locked:
+            if self.persistent:
+                self.memcache.replace(
+                    self.key, (self.uid, self._locked), self.exptime,
+                )
+        else:
+            self.memcache.delete(self.key)
 
     def locked(self, by_self=False):
         """
         by_self (bool)
             If True, returns whether this instance holds this lock.
         """
-        owner_uid = self.__get()[0]
-        return by_self and owner_uid == self.uid or owner_uid is not None
+        if by_self:
+            return bool(self._locked)
+        return bool(self.getOwnerUid())
 
     def getOwnerUid(self):
         """
@@ -177,26 +181,21 @@ class RLock(object):
     def __exit__(self, t, v, tb):
         self.release()
 
+    def __del__(self):
+        if not self.persistent:
+            while self._locked:
+                self.release()
+
     # BBB
     acquire_lock = acquire
     locked_lock = locked
     release_lock = release
 
     def __get(self):
-        value = self.memcache.gets(self.key)
+        value = self.memcache.get(self.key)
         if value is None:
-            # We don't care if this call fails, we just want to initialise
-            # the value.
-            self.memcache.add(self.key, (None, 0))
-            value = self.memcache.gets(self.key)
-            if value is None:
-                raise MemcacheLockGetsError('Memcache not storing anything')
+            return None, 0
         return value
-
-    def __set(self, count):
-        if not self.memcache.cas(
-                self.key, (count and self.uid or None, count), self.exptime):
-            raise MemcacheLockCasError('Lock stolen')
 
 
 class Lock(RLock):
@@ -211,9 +210,15 @@ class ThreadRLock(RLock):
     multithreaded app like an RLock, in addition to RLock behaviour.
     """
     def __init__(self, *args, **kw):
+        """
+        See memcachelock.RLock.__init__ .
+
+        persistence is not available, as it is not possible to restore
+        threading.RLock's state.
+        """
         # Local RLock-ing
         self._rlock = threading.RLock()
-        super(ThreadRLock, self).__init__(*args, **kw)
+        super(ThreadRLock, self).__init__(persistent=False, *args, **kw)
 
     def acquire(self, blocking=True):
         if self._rlock.acquire(blocking):
@@ -252,6 +257,13 @@ class ThreadRLock(RLock):
         finally:
             if has_lock:
                 self._rlock.release()
+
+    def __del__(self):
+        # Do not release self._RLock, since we can delete instance from a
+        # thread which didn't own the lock.
+        release = super(ThreadRLock, self).release
+        while self._locked:
+            release()
 
     # BBB
     acquire_lock = acquire

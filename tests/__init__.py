@@ -5,9 +5,11 @@ import threading
 import time
 import multiprocessing
 import gc
+from functools import partial
 
 import memcache
-from memcachelock import RLock, Lock, ThreadRLock, LOCK_UID_KEY_SUFFIX
+from memcachelock import RLock, Lock, ThreadRLock, LOCK_UID_KEY_SUFFIX, \
+    MemcacheLockReleaseError
 
 import unittest
 
@@ -41,6 +43,7 @@ class TestLock(unittest.TestCase):
         cls.mc3 = memcache.Client(TEST_HOSTS, cache_cas=True)
 
     def tearDown(self):
+        gc.collect()
         self.mc1.delete_multi((TEST_KEY_1, TEST_KEY_2))
 
     def check(self, locked, unlocked):
@@ -82,9 +85,10 @@ class TestBasicLogic(TestLock):
 
         self.assertTrue(locka1.acquire())
 
-        del locka1
-        # Lock still held, although owner instance died
-        self.assertTrue(locka2.locked())
+        if LockType is not ThreadRLock:
+            del locka1
+            # Lock still held, although owner instance died
+            self.assertTrue(locka2.locked())
 
     def _test_reentrant(self, LockType):
         # Basic RLock-ish behaviour
@@ -116,16 +120,43 @@ class TestBasicLogic(TestLock):
 
     def _test_persistent(self, LockType):
         UID = 1
-        lock = LockType(self.mc1, TEST_KEY_1, uid=UID)
-        self.assertTrue(lock.acquire(False))
+        if LockType is ThreadRLock:
+            # Persistence is not supported, and neither is "persistent"
+            # argument.
+            lock1 = LockType(self.mc1, TEST_KEY_1, uid=UID)
+            lock2 = LockType(self.mc1, TEST_KEY_1, uid=UID + 1)
+        else:
+            lock = LockType(self.mc1, TEST_KEY_1, uid=UID)
+            self.assertTrue(lock.acquire(False))
+            before_destruction = self.mc1.get(TEST_KEY_1)
+            # Lock is not released on destruction
+            del lock
+            gc.collect()
+            self.assertEqual(self.mc1.get(TEST_KEY_1), before_destruction)
+            # Lock state is initialised from memcached on creation
+            lock = LockType(self.mc1, TEST_KEY_1, uid=UID)
+            self.assertTrue(lock.locked(by_self=True))
+            lock1 = LockType(self.mc1, TEST_KEY_1, uid=UID, persistent=False)
+            # Lock state is still initialised from memcached on creation
+            self.assertTrue(lock1.locked(by_self=True))
+            # ...so release it before creating lock2
+            lock1.release()
+            lock2 = LockType(
+                self.mc1, TEST_KEY_1, uid=UID + 1, persistent=False)
+        # When not persistent, lock is released on owner destruction
+        self.assertTrue(lock1.acquire(False))
+        if LockType is not Lock:
+            # Acquire once more to exercice unlock loop on destruction
+            self.assertTrue(lock1.acquire(False))
         before_destruction = self.mc1.get(TEST_KEY_1)
-        # Lock is not released on destruction
-        del lock
+        # lock2 does not own the lock, so it releases nothing
+        del lock2
         gc.collect()
-        self.assertEqual(self.mc1.get(TEST_KEY_1), before_destruction)
-        # Lock state is initialised from memcached on creation
-        lock = LockType(self.mc1, TEST_KEY_1, uid=UID)
-        self.assertTrue(lock.locked(by_self=True))
+        self.assertEqual(before_destruction, self.mc1.get(TEST_KEY_1))
+        # ...but lock1 does, and releases
+        del lock1
+        gc.collect()
+        self.assertEqual(None, self.mc1.get(TEST_KEY_1))
 
     def test_normal_lock(self):
         self._test_normal(Lock)
@@ -179,12 +210,26 @@ class TestExptime(TestLock):
         self.assertGreater(interval, exptime - 1)
         self.assertLess(interval, exptime + 1)
         lockb.release()
+        # locka internal state is now desynchronised from memcached
+        # it thinks it has the lock
+        self.assertTrue(locka.locked(by_self=True))
+        # ...but fails releasing it
+        self.assertRaises(MemcacheLockReleaseError, locka.release)
+        self.assertTrue(locka.locked(by_self=True))
+        locka.resync()
+        self.assertFalse(locka.locked(by_self=True))
 
     def test_exptime_lock(self):
         self._test_exptime(Lock)
 
     def test_exptime_rlock(self):
         self._test_exptime(RLock)
+
+    def test_non_persistent_exptime_lock(self):
+        self._test_exptime(partial(Lock, persistent=False))
+
+    def test_non_persistent_exptime_rlock(self):
+        self._test_exptime(partial(RLock, persistent=False))
 
     def test_exptime_threadrlock(self):
         self._test_exptime(ThreadRLock)
