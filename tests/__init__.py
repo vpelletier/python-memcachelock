@@ -217,15 +217,6 @@ class TestBasicLogic(TestLock):
         self._test_careful_release(ThreadRLock)
 
 
-def locker((LockType, key, sleep_time)):
-    lock = LockType(memcache.Client(TEST_HOSTS, cache_cas=True), key)
-    lock.acquire()
-    if sleep_time:
-        time.sleep(sleep_time)
-    lock.release()
-    return lock.uid
-
-
 class TestExptime(TestLock):
     def _test_exptime(self, LockType):
         exptime = 1
@@ -301,6 +292,15 @@ class TestIntervalTimeout(TestTimeout):
 
 class TestIntervalBackoffTimeout(TestBackoffTimeout, TestIntervalTimeout):
     pass
+
+
+def locker((LockType, key, sleep_time)):
+    lock = LockType(memcache.Client(TEST_HOSTS, cache_cas=True), key)
+    lock.acquire()
+    if sleep_time:
+        time.sleep(sleep_time)
+    lock.release()
+    return lock.uid
 
 
 class TestSwarm(TestLock):
