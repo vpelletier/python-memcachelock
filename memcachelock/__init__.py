@@ -209,9 +209,10 @@ class RLock(object):
             interval = min(self.interval, timeout)
         while True:
             yield
-            if not blocking or time.time() >= deadline:
+            now = time.time()
+            if not blocking or now >= deadline:
                 break
-            time.sleep(interval)
+            time.sleep(min(interval, deadline - now))
             interval = min(self.backoff, interval * 2, deadline - time.time())
 
     def acquire(self, blocking=True, timeout=None):
