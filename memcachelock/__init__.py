@@ -47,6 +47,7 @@ How to break things:
 import thread
 import threading
 import time
+from functools import partial
 
 LOCK_UID_KEY_SUFFIX = '_uid'
 INF = float('inf')
@@ -257,7 +258,7 @@ class RLock(object):
         self._locked = new_locked
         return True
 
-    def release(self):
+    def release(self, timeout=0):
         """
         Release the lock.
 
@@ -281,12 +282,23 @@ class RLock(object):
                         self.key[1], self.uid, owner))
         self._locked -= 1
         if self._locked:
-            if self.persistent and not self.memcache.replace(
-                    self.key, (self.uid, self._locked), self.exptime,
-                    ) and not self.stand_in:
+            if not self.persistent:
+                return
+            action = partial(
+                self.memcache.replace,
+                self.key, (self.uid, self._locked), self.exptime,
+            )
+        else:
+            action = partial(
+                self.memcache.delete,
+                self.key,
+            )
+        for _ in self._wait(timeout):
+            if action():
+                break
+        else:
+            if not self.stand_in:
                 raise MemcacheLockNetworkError
-        elif not self.memcache.delete(self.key) and not self.stand_in:
-            raise MemcacheLockNetworkError
 
     def locked(self, by_self=False):
         """
@@ -365,7 +377,7 @@ class ThreadRLock(RLock):
             return super(ThreadRLock, self).acquire(blocking, **kw)
         return False
 
-    def release(self):
+    def release(self, **kw):
         """
         Release the lock.
 
@@ -376,7 +388,7 @@ class ThreadRLock(RLock):
         # - if memcache release raises, there is no way to recover (we thought
         #   we were owning the lock)
         self._rlock.release()
-        super(ThreadRLock, self).release()
+        super(ThreadRLock, self).release(**kw)
 
     __enter__ = acquire
 
