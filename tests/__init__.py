@@ -305,9 +305,9 @@ class TestIntervalBackoffTimeout(TestBackoffTimeout, TestIntervalTimeout):
 
 class TestSwarm(TestLock):
     SWARM_SIZE = 30
+    SLEEP_TIME = 0.001
 
     def _test_deadlock(self, LockType):
-        SLEEP_TIME = 0.001
 
         try:
             pool = multiprocessing.Pool(processes=self.SWARM_SIZE)
@@ -318,13 +318,13 @@ class TestSwarm(TestLock):
         result = list(pool.imap_unordered(
             locker,
             [
-                (LockType, TEST_KEY_1, SLEEP_TIME)
+                (LockType, TEST_KEY_1, self.SLEEP_TIME)
                 for _ in xrange(self.SWARM_SIZE)
             ]
         ))  # list forces us to get results
         interval = time.time() - start
 
-        self.assertGreater(interval, SLEEP_TIME * self.SWARM_SIZE)
+        self.assertGreater(interval, self.SLEEP_TIME * self.SWARM_SIZE)
         self.assertEqual(len(result), self.SWARM_SIZE)
         self.assertEqual(len(set(result)), self.SWARM_SIZE, result)
 
@@ -341,6 +341,10 @@ class TestSwarm(TestLock):
 
     def test_deadlock_threadrlock(self):
         self._test_deadlock(ThreadRLock)
+
+
+class TestSlowSwarm(TestSwarm):
+    SLEEP_TIME = 0.01
 
 
 if __name__ == '__main__':
