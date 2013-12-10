@@ -237,21 +237,21 @@ class RLock(object):
         else:
             new_locked = 1
             method = self.memcache.add
-        retrying = False
+        tries = maxtries = 3
         for _ in self._wait(timeout if blocking else 0):
             if method(self.key, (self.uid, new_locked), self.exptime):
                 break
             # python-memcached masquerades network errors as command failure,
             # so check if server is still alive by peeking at lock owner.
             if not self.memcache.get(self.key):
-                if retrying:
-                    if self.stand_in:
-                        break
-                    raise MemcacheLockNetworkError
-                # Maybe lock was just released, retry immediately.
-                retrying = True
-                continue
-            retrying = False
+                if tries:
+                    # Maybe lock was just released, retry immediately.
+                    tries -= 1
+                    continue
+                if self.stand_in:
+                    break
+                raise MemcacheLockNetworkError
+            tries = maxtries
             # I don't have the lock.
         else:
             return False
