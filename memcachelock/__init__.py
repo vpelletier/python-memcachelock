@@ -191,6 +191,29 @@ class RLock(object):
             id(self),
         )
 
+    def _wait(self, blocking, timeout):
+        """
+        Timed generator, yielding with quadratic backoff and ending when
+        timeout is exceeded.
+
+        blocking (bool)
+            If fasle, end generation after yielding once.
+        timeout (float)
+            How long to keep generating, in seconds.
+        """
+        if timeout is None:
+            deadline = INF
+            interval = self.interval
+        else:
+            deadline = time.time() + timeout
+            interval = min(self.interval, timeout)
+        while True:
+            yield
+            if not blocking or time.time() >= deadline:
+                break
+            time.sleep(interval)
+            interval = min(self.backoff, interval * 2, deadline - time.time())
+
     def acquire(self, blocking=True, timeout=None):
         """
         Acquire the lock.
@@ -217,14 +240,8 @@ class RLock(object):
         else:
             new_locked = 1
             method = self.memcache.add
-        if timeout is None:
-            deadline = INF
-            interval = self.interval
-        else:
-            deadline = time.time() + timeout
-            interval = min(self.interval, timeout)
         retrying = False
-        while True:
+        for _ in self._wait(blocking, timeout):
             if method(self.key, (self.uid, new_locked), self.exptime):
                 break
             # python-memcached masquerades network errors as command failure,
@@ -239,10 +256,8 @@ class RLock(object):
                 continue
             retrying = False
             # I don't have the lock.
-            if not blocking or time.time() >= deadline:
-                return False
-            time.sleep(interval)
-            interval = min(self.backoff, interval * 2, deadline - time.time())
+        else:
+            return False
         self._locked = new_locked
         return True
 
