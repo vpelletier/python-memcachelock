@@ -191,39 +191,34 @@ class RLock(object):
             id(self),
         )
 
-    def _wait(self, blocking, timeout):
+    def _wait(self, timeout):
         """
         Timed generator, yielding with quadratic backoff and ending when
         timeout is exceeded.
 
-        blocking (bool)
-            If fasle, end generation after yielding once.
         timeout (float)
             How long to keep generating, in seconds.
         """
-        if timeout is None:
-            deadline = INF
-            interval = self.interval
-        else:
-            deadline = time.time() + timeout
-            interval = min(self.interval, timeout)
+        deadline = time.time() + timeout
+        interval = min(self.interval, timeout)
         while True:
             yield
             now = time.time()
-            if not blocking or now >= deadline:
+            if now >= deadline:
                 break
             time.sleep(min(interval, deadline - now))
             interval = min(self.backoff, interval * 2, deadline - time.time())
 
-    def acquire(self, blocking=True, timeout=None):
+    def acquire(self, blocking=True, timeout=INF):
         """
         Acquire the lock.
 
         blocking (bool)
-            If true, wait until lock can be acquired.
+            When true, use given timeout.
+            When false, set timeout to 0.
         timeout (float)
             How long to wait for lock, in seconds.
-            None means block until lock can be acquired.
+            float('inf') means block until lock can be acquired.
 
         Returns True if the lock could be acquired, False otherwise.
 
@@ -242,7 +237,7 @@ class RLock(object):
             new_locked = 1
             method = self.memcache.add
         retrying = False
-        for _ in self._wait(blocking, timeout):
+        for _ in self._wait(timeout if blocking else 0):
             if method(self.key, (self.uid, new_locked), self.exptime):
                 break
             # python-memcached masquerades network errors as command failure,
