@@ -200,6 +200,8 @@ class RLock(object):
         timeout (float)
             How long to keep generating, in seconds.
         """
+        if timeout is None:
+            timeout = INF
         deadline = time.time() + timeout
         interval = min(self.interval, timeout)
         while True:
@@ -220,6 +222,8 @@ class RLock(object):
         timeout (float)
             How long to wait for lock, in seconds.
             float('inf') means block until lock can be acquired.
+            For compatibility with standard multiprocessing module, None is
+            treated as float('inf').
 
         Returns True if the lock could be acquired, False otherwise.
 
