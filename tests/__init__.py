@@ -313,6 +313,7 @@ class TestSwarm(TestLock):
             pool = multiprocessing.Pool(processes=self.SWARM_SIZE)
         except OSError:
             raise unittest.SkipTest('multiprocessing.Pool call failed')
+        self.addCleanup(self._cleanup_pool, pool)
         start = time.time()
         result = list(pool.imap_unordered(
             locker,
@@ -326,6 +327,9 @@ class TestSwarm(TestLock):
         self.assertGreater(interval, SLEEP_TIME * self.SWARM_SIZE)
         self.assertEqual(len(result), self.SWARM_SIZE)
         self.assertEqual(len(set(result)), self.SWARM_SIZE, result)
+
+    @staticmethod
+    def _cleanup_pool(pool):
         pool.close()
         pool.join()
 
