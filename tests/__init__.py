@@ -223,7 +223,7 @@ def locker((LockType, key, sleep_time)):
     if sleep_time:
         time.sleep(sleep_time)
     lock.release()
-    return None
+    return lock.uid
 
 
 class TestExptime(TestLock):
@@ -314,7 +314,7 @@ class TestSwarm(TestLock):
         except OSError:
             raise unittest.SkipTest('multiprocessing.Pool call failed')
         start = time.time()
-        list(pool.imap_unordered(
+        result = list(pool.imap_unordered(
             locker,
             [
                 (LockType, TEST_KEY_1, SLEEP_TIME)
@@ -324,6 +324,8 @@ class TestSwarm(TestLock):
         interval = time.time() - start
 
         self.assertGreater(interval, SLEEP_TIME * self.SWARM_SIZE)
+        self.assertEqual(len(result), self.SWARM_SIZE)
+        self.assertEqual(len(set(result)), self.SWARM_SIZE, result)
         pool.close()
         pool.join()
 
