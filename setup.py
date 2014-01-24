@@ -4,7 +4,7 @@ setup(
     name='memcachelock',
     description="Use memcache as a lock server",
     keywords='memcache lock',
-    version='0.3.1',
+    version='0.4',
     author='Vincent Pelletier',
     author_email='plr.vincent@gmail.com',
     url='http://github.com/vpelletier/python-memcachelock',
